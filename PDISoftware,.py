@@ -7,6 +7,15 @@ from tkinter import messagebox
 # Inicializar o subtrator de fundo
 fgbg = cv2.createBackgroundSubtractorMOG2()
 
+# Variáveis globais para contadores
+contadores = {
+    "Humano em pé": 0,
+    "Humano deitado": 0,
+    "Criança": 0,
+    "Animal": 0,
+    "Desconhecido": 0
+}
+
 def classify_contour(contour):
     # Calcula a área do contorno
     area = cv2.contourArea(contour)
@@ -44,6 +53,10 @@ def start_processing():
         if not ret:
             break
 
+        # Reiniciar contadores a cada frame
+        for key in contadores:
+            contadores[key] = 0
+
         # Aplicar o filtro GaussianBlur para suavizar a imagem
         blurred_frame = cv2.GaussianBlur(frame, (5, 5), 0)
 
@@ -70,6 +83,9 @@ def start_processing():
                 # Classificar o contorno
                 label = classify_contour(contour)
                 
+                # Incrementar o contador do tipo identificado
+                contadores[label] += 1
+                
                 # Desenhar o retângulo delimitador e a etiqueta
                 x, y, w, h = cv2.boundingRect(contour)
                 cv2.rectangle(frame_with_contours, (x, y), (x+w, y+h), (0, 255, 0), 2)
@@ -77,28 +93,58 @@ def start_processing():
 
         cv2.imshow('Detecção de Pessoas e Animais', frame_with_contours)
 
+        # Atualizar a interface com as contagens do frame atual
+        update_counters()
+
         if cv2.waitKey(30) & 0xFF == ord('q'):
             break
 
     cap.release()
     cv2.destroyAllWindows()
 
+def update_counters():
+    # Atualiza o texto dos contadores na interface
+    counter_text.set(f"Humano em pé: {contadores['Humano em pé']}\n"
+                     f"Humano deitado: {contadores['Humano deitado']}\n"
+                     f"Criança: {contadores['Criança']}\n"
+                     f"Animal: {contadores['Animal']}\n"
+                     f"Desconhecido: {contadores['Desconhecido']}")
+
 def show_info():
     messagebox.showinfo("About", "Software de Detecção e Contagem de Pessoas e Animais sem Machine Learning. Desenvolvido com OpenCV e Tkinter.")
+
+def open_counter_window():
+    counter_window = tk.Toplevel(root)
+    counter_window.title("Contadores")
+    counter_window.geometry("300x200")
+
+    # Rótulo para exibir contadores na janela separada
+    lbl_counters = tk.Label(counter_window, textvariable=counter_text)
+    lbl_counters.pack(pady=20)
 
 # Configuração da Janela Principal
 root = tk.Tk()
 root.title("Detecção de Pessoas e Animais")
 root.geometry("300x200")
 
-# Botões da Interface
-btn_start = tk.Button(root, text="Iniciar Processamento", command=start_processing)
-btn_start.pack(pady=20)
+# Definindo a largura dos botões
+button_width = 20
 
-btn_info = tk.Button(root, text="Sobre", command=show_info)
+# Texto para exibir contadores
+counter_text = tk.StringVar()
+counter_text.set("Humano em pé: 0\nHumano deitado: 0\nCriança: 0\nAnimal: 0\nDesconhecido: 0")
+
+# Botões da Interface
+btn_start = tk.Button(root, text="Iniciar Processamento", command=start_processing, width=button_width)
+btn_start.pack(pady=10)
+
+btn_counters = tk.Button(root, text="Exibir Contadores", command=open_counter_window, width=button_width)
+btn_counters.pack(pady=10)
+
+btn_info = tk.Button(root, text="Sobre", command=show_info, width=button_width)
 btn_info.pack(pady=10)
 
-btn_exit = tk.Button(root, text="Sair", command=root.quit)
+btn_exit = tk.Button(root, text="Sair", command=root.quit, width=button_width)
 btn_exit.pack(pady=10)
 
 # Inicia o Loop Principal da Interface
