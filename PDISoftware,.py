@@ -14,7 +14,7 @@ def classify_contour(contour):
     # Obtém o retângulo delimitador
     x, y, w, h = cv2.boundingRect(contour)
 
-    # Classifica com base na proporção largura/altura
+    # Classifica com base na proporção largura/altura e na área
     aspect_ratio = float(w) / h
     
     if aspect_ratio > 1.5:  # Largura maior que altura (pode ser um animal ou humano deitado)
@@ -23,7 +23,13 @@ def classify_contour(contour):
         else:
             return "Humano deitado"
     else:  # Altura maior que largura (pode ser um humano em pé)
-        return "Humano em pé"
+        if area > 1500:  # Definimos um limite de área para adultos e crianças
+            if h > 150:  # Altura mínima para ser considerado um adulto
+                return "Humano em pé"
+            else:
+                return "Criança"
+        else:
+            return "Desconhecido"  # Pode ser ruído ou um objeto muito pequeno
 
 def start_processing():
     video_path = filedialog.askopenfilename(title="Select a Video File",
