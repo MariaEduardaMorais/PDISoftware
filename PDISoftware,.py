@@ -71,15 +71,15 @@ def start_processing():
         # Aplicar filtro bilateral para suavizar a imagem
         bilateral_frame = cv2.bilateralFilter(gray_frame, 9, 75, 75)
 
-        # Aplicar o algoritmo de detecção de bordas Canny
-        edges = cv2.Canny(bilateral_frame, 50, 150)
-
         # Aplicar limiar binário
-        _, binary_mask = cv2.threshold(edges, 127, 255, cv2.THRESH_BINARY)
+        _, binary_mask = cv2.threshold(bilateral_frame, 127, 255, cv2.THRESH_BINARY)
+
+        # Aplicar o algoritmo de detecção de bordas Canny na máscara binária
+        edges = cv2.Canny(binary_mask, 50, 150)
 
         # Aplicar operações morfológicas para limpar a imagem
         kernel = np.ones((3, 3), np.uint8)  # Kernel menor para limpeza mais adequada
-        dilated_mask = cv2.dilate(binary_mask, kernel, iterations=1)  # Dilatação para reforçar contornos
+        dilated_mask = cv2.dilate(edges, kernel, iterations=1)  # Dilatação para reforçar contornos
         cleaned_mask = cv2.erode(dilated_mask, kernel, iterations=1)   # Erosão para limpar pequenos ruídos
 
         # Encontrar contornos
@@ -89,8 +89,8 @@ def start_processing():
         cv2.imshow('Original', frame)
         cv2.imshow('Escala de Cinza', gray_frame)
         cv2.imshow('Filtro Bilateral', bilateral_frame)
-        cv2.imshow('Bordas Canny', edges)
         cv2.imshow('Máscara Binária', binary_mask)
+        cv2.imshow('Bordas Canny', edges)
         cv2.imshow('Máscara Limpa', cleaned_mask)
         
         # Exibir a imagem com contornos e classificações
