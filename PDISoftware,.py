@@ -2,19 +2,20 @@ import cv2
 import numpy as np
 import tkinter as tk
 from tkinter import filedialog
-from tkinter import messagebox
 
 # Inicializar o subtrator de fundo
 fgbg = cv2.createBackgroundSubtractorMOG2()
 
 # Variáveis globais para contadores
 contadores = {
-    "Humano em pé": 0,
-    "Humano deitado": 0,
+    "Adulto": 0,
     "Criança": 0,
     "Animal": 0,
     "Desconhecido": 0
 }
+
+# Conjunto para rastrear contornos únicos
+contornos_exibidos = set()
 
 def classify_contour(contour):
     # Calcula a área do contorno
@@ -22,23 +23,30 @@ def classify_contour(contour):
     
     # Obtém o retângulo delimitador
     x, y, w, h = cv2.boundingRect(contour)
-
-    # Classifica com base na proporção largura/altura e na área
-    aspect_ratio = float(w) / h
     
-    if aspect_ratio > 1.5:  # Largura maior que altura (pode ser um animal ou humano deitado)
-        if area > 5000:  # Ajuste o limite de área conforme necessário
+    # Calcula a proporção largura/altura
+    aspect_ratio = float(w) / h
+
+    # Define limites de área para classificação
+    area_adulto_max = 1500  # Área máxima para adultos
+    area_crianca_max = 800  # Área máxima para crianças (ajustado)
+    area_animal_max = 1200  # Área máxima para animais (ajustado)
+
+    if area > 5000:  # Limite de área para grandes objetos
+        return "Desconhecido"
+
+    if aspect_ratio > 1.5:  # Largura maior que altura (possível animal ou humano deitado)
+        if area <= area_animal_max:  # Limite de área para animal
             return "Animal"
         else:
-            return "Humano deitado"
-    else:  # Altura maior que largura (pode ser um humano em pé)
-        if area > 1500:  # Definimos um limite de área para adultos e crianças
-            if h > 150:  # Altura mínima para ser considerado um adulto
-                return "Humano em pé"
-            else:
-                return "Criança"
+            return "Desconhecido"  # Pode ser ruído ou objeto grande
+    else:  # Altura maior que largura (possível humano em pé ou criança)
+        if area <= area_crianca_max:  # Área menor pode ser uma criança
+            return "Criança"
+        elif area <= area_adulto_max:  # Área maior pode ser um adulto
+            return "Adulto"
         else:
-            return "Desconhecido"  # Pode ser ruído ou um objeto muito pequeno
+            return "Desconhecido"
 
 def start_processing():
     video_path = filedialog.askopenfilename(title="Select a Video File",
@@ -53,27 +61,36 @@ def start_processing():
         if not ret:
             break
 
-        # Reiniciar contadores a cada frame
+        # Limpar contadores a cada frame
         for key in contadores:
             contadores[key] = 0
 
-        # Aplicar o filtro GaussianBlur para suavizar a imagem
-        blurred_frame = cv2.GaussianBlur(frame, (5, 5), 0)
+        # Aplicar filtro para escala de cinza
+        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # Aplicar a subtração de fundo
-        fgmask = fgbg.apply(blurred_frame)
-        
+        # Aplicar filtro bilateral para suavizar a imagem
+        bilateral_frame = cv2.bilateralFilter(gray_frame, 9, 75, 75)
+
+        # Aplicar o algoritmo de detecção de bordas Canny
+        edges = cv2.Canny(bilateral_frame, 50, 150)
+
+        # Aplicar limiar binário
+        _, binary_mask = cv2.threshold(edges, 127, 255, cv2.THRESH_BINARY)
+
         # Aplicar operações morfológicas para limpar a imagem
-        kernel = np.ones((7, 7), np.uint8)  # Kernel maior para limpeza mais robusta
-        cleaned_mask = cv2.morphologyEx(fgmask, cv2.MORPH_CLOSE, kernel)
-        cleaned_mask = cv2.morphologyEx(cleaned_mask, cv2.MORPH_OPEN, kernel)
-        
+        kernel = np.ones((3, 3), np.uint8)  # Kernel menor para limpeza mais adequada
+        dilated_mask = cv2.dilate(binary_mask, kernel, iterations=1)  # Dilatação para reforçar contornos
+        cleaned_mask = cv2.erode(dilated_mask, kernel, iterations=1)   # Erosão para limpar pequenos ruídos
+
         # Encontrar contornos
         contours, _ = cv2.findContours(cleaned_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
+
         # Exibir as diferentes fases do processamento
         cv2.imshow('Original', frame)
-        cv2.imshow('Subtração de Fundo', fgmask)
+        cv2.imshow('Escala de Cinza', gray_frame)
+        cv2.imshow('Filtro Bilateral', bilateral_frame)
+        cv2.imshow('Bordas Canny', edges)
+        cv2.imshow('Máscara Binária', binary_mask)
         cv2.imshow('Máscara Limpa', cleaned_mask)
         
         # Exibir a imagem com contornos e classificações
@@ -83,18 +100,35 @@ def start_processing():
                 # Classificar o contorno
                 label = classify_contour(contour)
                 
-                # Incrementar o contador do tipo identificado
-                contadores[label] += 1
-                
-                # Desenhar o retângulo delimitador e a etiqueta
+                # Obter a caixa delimitadora do contorno
                 x, y, w, h = cv2.boundingRect(contour)
-                cv2.rectangle(frame_with_contours, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                cv2.putText(frame_with_contours, label, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-        cv2.imshow('Detecção de Pessoas e Animais', frame_with_contours)
+                contour_id = (x, y, w, h)
+                
+                # Verificar se o contorno já foi exibido
+                if contour_id not in contornos_exibidos:
+                    # Incrementar o contador do tipo identificado
+                    contadores[label] += 1
+                    
+                    # Adicionar o contorno ao conjunto de contornos exibidos
+                    contornos_exibidos.add(contour_id)
+                    
+                    # Desenhar o retângulo delimitador e a etiqueta
+                    cv2.rectangle(frame_with_contours, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                    cv2.putText(frame_with_contours, label, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
         # Atualizar a interface com as contagens do frame atual
-        update_counters()
+        counter_text = (f"Adulto: {contadores['Adulto']}\n"
+                        f"Criança: {contadores['Criança']}\n"
+                        f"Animal: {contadores['Animal']}\n"
+                        f"Desconhecido: {contadores['Desconhecido']}")
+
+        # Desenhar o texto dos contadores sobre o frame
+        y0, dy = 30, 30
+        for i, line in enumerate(counter_text.split('\n')):
+            y = y0 + i * dy
+            cv2.putText(frame_with_contours, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+
+        cv2.imshow('Detecção de Pessoas e Animais', frame_with_contours)
 
         if cv2.waitKey(30) & 0xFF == ord('q'):
             break
@@ -102,47 +136,17 @@ def start_processing():
     cap.release()
     cv2.destroyAllWindows()
 
-def update_counters():
-    # Atualiza o texto dos contadores na interface
-    counter_text.set(f"Humano em pé: {contadores['Humano em pé']}\n"
-                     f"Humano deitado: {contadores['Humano deitado']}\n"
-                     f"Criança: {contadores['Criança']}\n"
-                     f"Animal: {contadores['Animal']}\n"
-                     f"Desconhecido: {contadores['Desconhecido']}")
-
-def show_info():
-    messagebox.showinfo("About", "Software de Detecção e Contagem de Pessoas e Animais sem Machine Learning. Desenvolvido com OpenCV e Tkinter.")
-
-def open_counter_window():
-    counter_window = tk.Toplevel(root)
-    counter_window.title("Contadores")
-    counter_window.geometry("300x200")
-
-    # Rótulo para exibir contadores na janela separada
-    lbl_counters = tk.Label(counter_window, textvariable=counter_text)
-    lbl_counters.pack(pady=20)
-
 # Configuração da Janela Principal
 root = tk.Tk()
 root.title("Detecção de Pessoas e Animais")
-root.geometry("300x200")
+root.geometry("300x150")
 
 # Definindo a largura dos botões
 button_width = 20
 
-# Texto para exibir contadores
-counter_text = tk.StringVar()
-counter_text.set("Humano em pé: 0\nHumano deitado: 0\nCriança: 0\nAnimal: 0\nDesconhecido: 0")
-
 # Botões da Interface
 btn_start = tk.Button(root, text="Iniciar Processamento", command=start_processing, width=button_width)
-btn_start.pack(pady=10)
-
-btn_counters = tk.Button(root, text="Exibir Contadores", command=open_counter_window, width=button_width)
-btn_counters.pack(pady=10)
-
-btn_info = tk.Button(root, text="Sobre", command=show_info, width=button_width)
-btn_info.pack(pady=10)
+btn_start.pack(pady=20)
 
 btn_exit = tk.Button(root, text="Sair", command=root.quit, width=button_width)
 btn_exit.pack(pady=10)
